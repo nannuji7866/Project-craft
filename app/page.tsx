@@ -12,9 +12,23 @@ import Image from "next/image";
 
 export default function Page() {
   const { user, loading, signInWithGoogle, signOut } = useAuth();
+  const [loginError, setLoginError] = useState("");
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [referenceText, setReferenceText] = useState("");
   const [analysis, setAnalysis] = useState("");
+  
+  const handleSignIn = async () => {
+    setLoginError("");
+    try {
+      await signInWithGoogle();
+    } catch (error: any) {
+      if (error?.code === 'auth/popup-blocked') {
+        setLoginError("Sign-in popup was blocked by your browser. Please allow popups for this site and try again.");
+      } else {
+        setLoginError("An error occurred during sign-in. Please try again.");
+      }
+    }
+  };
   
   // Form State
   const [topic, setTopic] = useState("");
@@ -329,8 +343,16 @@ export default function Page() {
           <p className="text-sm text-stone-600 mb-8">
             Sign in to recreate and analyze academic projects with AI.
           </p>
+          
+          {loginError && (
+            <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg text-sm flex items-start gap-3 text-left">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <p>{loginError}</p>
+            </div>
+          )}
+
           <button
-            onClick={signInWithGoogle}
+            onClick={handleSignIn}
             className="w-full bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 px-4 py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-3 transition-colors shadow-sm"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
