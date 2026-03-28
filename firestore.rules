@@ -75,6 +75,21 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidDraft(data) {
+      return hasOnlyAllowedFields(['uid', 'topic', 'content', 'pagesCount', 'level', 'sampleSize', 'ageGroup', 'area', 'placeholders', 'createdAt', 'updatedAt']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.topic is string && data.topic.size() > 0 && data.topic.size() < 500 &&
+             data.content is string && data.content.size() < 1000000 &&
+             (!('pagesCount' in data) || data.pagesCount is int) &&
+             (!('level' in data) || data.level is string) &&
+             (!('sampleSize' in data) || data.sampleSize is string) &&
+             (!('ageGroup' in data) || data.ageGroup is string) &&
+             (!('area' in data) || data.area is string) &&
+             (!('placeholders' in data) || data.placeholders is bool) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -90,6 +105,13 @@ service cloud.firestore {
                     uidNotModified() &&
                     areImmutableFieldsUnchanged(['createdAt']);
       allow delete: if isOwner(userId) && isDocOwner();
+
+      match /drafts/{draftId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidDraft(request.resource.data);
+        allow update: if isOwner(userId) && isValidDraft(request.resource.data) && areImmutableFieldsUnchanged(['createdAt']);
+        allow delete: if isOwner(userId);
+      }
     }
   }
 }

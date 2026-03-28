@@ -30,12 +30,70 @@
         }
       },
       "required": ["uid", "email", "createdAt"]
+    },
+    "Draft": {
+      "title": "Draft",
+      "description": "A saved project draft",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The user's unique ID"
+        },
+        "topic": {
+          "type": "string",
+          "description": "The project topic"
+        },
+        "content": {
+          "type": "string",
+          "description": "The project content"
+        },
+        "pagesCount": {
+          "type": "integer",
+          "description": "Number of pages"
+        },
+        "level": {
+          "type": "string",
+          "description": "Academic level"
+        },
+        "sampleSize": {
+          "type": "string",
+          "description": "Sample size"
+        },
+        "ageGroup": {
+          "type": "string",
+          "description": "Age group"
+        },
+        "area": {
+          "type": "string",
+          "description": "Area of study"
+        },
+        "placeholders": {
+          "type": "boolean",
+          "description": "Whether placeholders are enabled"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the draft was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the draft was last updated"
+        }
+      },
+      "required": ["uid", "topic", "content", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },
       "description": "User profiles"
+    },
+    "/users/{userId}/drafts/{draftId}": {
+      "schema": { "$ref": "#/entities/Draft" },
+      "description": "User project drafts"
     }
   }
 }
