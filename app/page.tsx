@@ -4,7 +4,7 @@ import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Loader2, FileText, Sparkles, AlertCircle, Upload, Download, Settings, CheckCircle2, RefreshCw, MinusCircle, PlusCircle, FileSearch, ArrowRight, LogOut, ImagePlus, FileDown, Save } from "lucide-react";
+import { Loader2, FileText, Sparkles, AlertCircle, Upload, Download, Settings, CheckCircle2, RefreshCw, MinusCircle, PlusCircle, FileSearch, ArrowRight, LogOut, LogIn, ImagePlus, FileDown, Save } from "lucide-react";
 import * as mammoth from "mammoth";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, AlignmentType } from "docx";
 import { useAuth } from "../components/AuthProvider";
@@ -118,20 +118,22 @@ Return only the updated section OR structured sections if in analysis mode`;
 export default function Page() {
   const [mode, setMode] = useState<"none" | "select" | "direct-edit" | "generate">("none");
   const { user, loading, signInWithGoogle, signOut } = useAuth();
-  const [loginError, setLoginError] = useState("");
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [referenceText, setReferenceText] = useState("");
   const [analysis, setAnalysis] = useState("");
   
   const handleSignIn = async () => {
-    setLoginError("");
+    setError("");
     try {
       await signInWithGoogle();
     } catch (error: any) {
+      console.error("Sign-in error:", error);
       if (error?.code === 'auth/popup-blocked') {
-        setLoginError("Sign-in popup was blocked by your browser. Please allow popups for this site and try again.");
+        setError("Sign-in popup was blocked by your browser. Please allow popups for this site and try again.");
+      } else if (error?.code === 'auth/unauthorized-domain') {
+        setError(`Domain not authorized. Please add ${window.location.hostname} to your Firebase Auth Authorized Domains.`);
       } else {
-        setLoginError("An error occurred during sign-in. Please try again.");
+        setError(error?.message || "An error occurred during sign-in. Please try again.");
       }
     }
   };
@@ -160,7 +162,7 @@ export default function Page() {
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
 
   const fetchDrafts = async () => {
-    if (!user) return;
+    if (!user || user.uid === 'guest') return;
     setIsLoadingDrafts(true);
     try {
       const q = query(collection(db, "users", user.uid, "drafts"), orderBy("updatedAt", "desc"));
@@ -191,7 +193,7 @@ export default function Page() {
   };
 
   const deleteDraft = async (draftId: string) => {
-    if (!user) return;
+    if (!user || user.uid === 'guest') return;
     try {
       await deleteDoc(doc(db, "users", user.uid, "drafts", draftId));
       setDrafts(prev => prev.filter(d => d.id !== draftId));
@@ -203,7 +205,7 @@ export default function Page() {
   };
 
   const saveDraft = async () => {
-    if (!user) {
+    if (!user || user.uid === 'guest') {
       setError("Please sign in to save drafts.");
       return;
     }
@@ -527,7 +529,7 @@ ${text.substring(0, 30000)} // Limit text to avoid massive token usage if doc is
       }
 
       // Auto-save draft after generation completes
-      if (user && finalOutput) {
+      if (user && user.uid !== 'guest' && finalOutput) {
         try {
           await addDoc(collection(db, "users", user.uid, "drafts"), {
             uid: user.uid,
@@ -594,20 +596,56 @@ ${text.substring(0, 30000)} // Limit text to avoid massive token usage if doc is
     }
   };
 
-  const handleGenerateImage = () => {
+  const handleGenerateImage = async () => {
     if (!imagePrompt.trim() || activeImagePageIndex === null) return;
     
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imagePrompt)}?width=800&height=400&nologo=true`;
-    const imageMarkdown = `\n\n![${imagePrompt}](${imageUrl})\n\n`;
-    
-    const newPages = [...renderedPages];
-    newPages[activeImagePageIndex] += imageMarkdown;
-    
-    setOutput(newPages.join('\n\n[PAGE_BREAK]\n\n'));
-    setProjectGenerated(true);
     setIsImageModalOpen(false);
-    setImagePrompt("");
-    setActiveImagePageIndex(null);
+    setLoadingStage('generating');
+    
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [
+            {
+              text: imagePrompt,
+            },
+          ],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "16:9",
+          }
+        }
+      });
+      
+      let imageUrl = "";
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          const base64EncodeString: string = part.inlineData.data;
+          imageUrl = `data:${part.inlineData.mimeType || 'image/png'};base64,${base64EncodeString}`;
+          break;
+        }
+      }
+      
+      if (imageUrl) {
+        const imageMarkdown = `\n\n![${imagePrompt}](${imageUrl})\n\n`;
+        const newPages = [...renderedPages];
+        newPages[activeImagePageIndex] += imageMarkdown;
+        
+        setOutput(newPages.join('\n\n[PAGE_BREAK]\n\n'));
+        setProjectGenerated(true);
+      } else {
+        setError("Failed to generate image.");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to generate image.");
+    } finally {
+      setLoadingStage('idle');
+      setImagePrompt("");
+      setActiveImagePageIndex(null);
+    }
   };
 
   const regeneratePage = async (pageIndex: number) => {
@@ -1019,43 +1057,6 @@ Do NOT return full document`;
     );
   }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50 p-6">
-        <div className="bg-white border border-stone-200 rounded-2xl p-8 max-w-md w-full shadow-sm text-center">
-          <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <FileText className="w-8 h-8 text-indigo-600" />
-          </div>
-          <h1 className="text-2xl font-bold text-stone-800 mb-2">ProjectCraft AI</h1>
-          <p className="text-sm text-stone-600 mb-8">
-            Sign in to recreate and analyze academic projects with AI.
-          </p>
-          
-          {loginError && (
-            <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg text-sm flex items-start gap-3 text-left">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              <p>{loginError}</p>
-            </div>
-          )}
-
-          <button
-            onClick={handleSignIn}
-            className="w-full bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 px-4 py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-3 transition-colors shadow-sm"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24">
-              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
-              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
-              <path d="M1 1h22v22H1z" fill="none" />
-            </svg>
-            Continue with Google
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 font-sans flex flex-col">
       <AnimatePresence>
@@ -1163,13 +1164,23 @@ Do NOT return full document`;
                 </div>
               )}
               <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-stone-200 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 p-2">
-                <button 
-                  onClick={signOut}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-stone-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Sign Out
-                </button>
+                {user.uid === 'guest' ? (
+                  <button 
+                    onClick={handleSignIn}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-stone-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    Sign In
+                  </button>
+                ) : (
+                  <button 
+                    onClick={signOut}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-stone-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign Out
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1494,7 +1505,7 @@ Do NOT return full document`;
                 ))}
 
                 <div className="flex flex-col items-center gap-4 pt-8 pb-16">
-                  {!user && output && (
+                  {user.uid === 'guest' && output && (
                     <p className="text-xs text-stone-500 font-medium italic">Sign in to save your project as a draft</p>
                   )}
                 </div>
@@ -1880,6 +1891,20 @@ Do NOT return full document`;
                 <div className="h-40 flex flex-col items-center justify-center gap-3 text-stone-400">
                   <Loader2 className="w-8 h-8 animate-spin" />
                   <p className="text-sm font-medium">Loading your drafts...</p>
+                </div>
+              ) : user.uid === 'guest' ? (
+                <div className="h-40 flex flex-col items-center justify-center gap-3 text-stone-400">
+                  <LogIn className="w-12 h-12 opacity-20" />
+                  <p className="text-sm font-medium">Sign in to save and view your drafts.</p>
+                  <button 
+                    onClick={() => {
+                      setIsDraftsModalOpen(false);
+                      handleSignIn();
+                    }}
+                    className="mt-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors"
+                  >
+                    Sign In Now
+                  </button>
                 </div>
               ) : drafts.length === 0 ? (
                 <div className="h-40 flex flex-col items-center justify-center gap-3 text-stone-400">

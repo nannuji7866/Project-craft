@@ -22,13 +22,20 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
+const guestUser = {
+  uid: 'guest',
+  displayName: 'Guest',
+  email: 'guest@projectcraft.ai',
+  photoURL: '',
+} as User;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
-      setUser(currentUser);
+      setUser(currentUser || guestUser);
       setLoading(false);
     });
 
